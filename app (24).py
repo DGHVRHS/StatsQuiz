@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import altair as alt
 import urllib.request
+import urllib.parse
 import json
 import smtplib
 from email.message import EmailMessage
@@ -161,11 +162,12 @@ def send_results_email(student_name, student_email, score, total, report_text):
         except Exception as e:
             return False, f"SMTP Error: {e}"
 
-    # Option 2: Zero-config webhook via FormSubmit
+    # Option 2: FormSubmit AJAX webhook with valid Origin & Referer web-server headers
     try:
         url = f"https://formsubmit.co/ajax/{TEACHER_EMAIL}"
         payload = {
             "_subject": subject,
+            "_captcha": "false",
             "Student Name": student_name,
             "Student Email": student_email or "Not provided",
             "Quiz Score": f"{score} / {total} ({round((score / total) * 100)}%)",
@@ -179,7 +181,9 @@ def send_results_email(student_name, student_email, score, total, report_text):
             headers={
                 "Content-Type": "application/json",
                 "Accept": "application/json",
-                "User-Agent": "Mozilla/5.0"
+                "Origin": "https://share.streamlit.io",
+                "Referer": "https://share.streamlit.io/",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             },
             method="POST"
         )
@@ -187,7 +191,7 @@ def send_results_email(student_name, student_email, score, total, report_text):
             resp_body = json.loads(resp.read().decode("utf-8"))
             if resp_body.get("success") in [True, "true"]:
                 return True, resp_body.get("message", "Email dispatched.")
-            return False, str(resp_body)
+            return False, resp_body.get("message", str(resp_body))
     except Exception as e:
         return False, str(e)
 
@@ -285,7 +289,6 @@ st.divider()
 st.header("Part 2: Quiz Questions (7 Questions)")
 
 true_dir = "Positive" if r > 0 else "Negative"
-true_str = "Strong" if abs(r) >= 0.70 else ("Moderate" if abs(r) >= 0.40 else "Weak")
 
 # Q1: Direction, Strength & Contextual Interpretation
 with st.container(border=True):
@@ -342,7 +345,7 @@ with st.container(border=True):
 with st.container(border=True):
     st.subheader("Question 4: Association vs. Causation")
     q4_opts = [
-        f"No — a strong correlation in observational data shows association, not causation, and confounding variables may explain the relationship.",
+        "No — a strong correlation in observational data shows association, not causation, and confounding variables may explain the relationship.",
         f"Yes — because |r| = {abs(r):.4f} is above 0.70, changing {scen['x_name'].lower()} is guaranteed to cause {scen['y_name'].lower()} to change.",
         "Yes — whenever a least-squares regression line has a non-zero slope, x must be the direct cause of y.",
         "No — correlation can only prove causation when r is negative."
@@ -399,7 +402,7 @@ with st.container(border=True):
         )
     with q6_c2:
         ans_q6_res = st.number_input(
-            f"6b. Compute the residual (Residual = Actual y − Predicted ŷ):",
+            "6b. Compute the residual (Residual = Actual y − Predicted ŷ):",
             value=0.0,
             format="%.2f",
             key="q6_res",
@@ -411,9 +414,9 @@ with st.container(border=True):
     st.subheader("Question 7: Reliability of Predictions & Extrapolation")
     q7_opts = [
         f"Unreliable — using a regression line to predict at x = {scen['extrap_x']} {scen['x_unit']} is called extrapolation because it lies far outside the observed x-range.",
-        f"Reliable — linear regression lines remain accurate for all real numbers regardless of the observed domain.",
-        f"Unreliable — using a regression line outside the observed range is called confounding.",
-        f"Reliable — as long as r² > 0.50, predictions far beyond the data have zero residual error."
+        "Reliable — linear regression lines remain accurate for all real numbers regardless of the observed domain.",
+        "Unreliable — using a regression line outside the observed range is called confounding.",
+        "Reliable — as long as r² > 0.50, predictions far beyond the data have zero residual error."
     ]
     ans_q7 = st.radio(
         f"Suppose someone uses `{eq_str}` to predict {scen['y_name']} when {scen['x_name']} = {scen['extrap_x']} {scen['x_unit']}. Is this prediction reliable, and what is the statistical term for it?",
@@ -434,7 +437,6 @@ if not st.session_state.submitted:
         elif None in [ans_q1, ans_q2, ans_q3, ans_q4, ans_q5, ans_q7]:
             st.error("⚠️ Please answer all multiple-choice questions (Questions 1–5 and Question 7) before submitting.")
         else:
-            # Grade all 7 questions
             q1_ok = (ans_q1 == q1_opts[0])
             q2_ok = (ans_q2 == q2_opts[0])
             q3_ok = (ans_q3 == q3_opts[0])
@@ -467,7 +469,7 @@ if not st.session_state.submitted:
             pct = round((score / total) * 100)
 
             report_lines = [
-                f"STATS REGRESSION QUIZ RESULTS",
+                "STATS REGRESSION QUIZ RESULTS",
                 f"Student: {student_name.strip()}",
                 f"Student Email: {student_email.strip() or 'N/A'}",
                 f"Score: {score} / {total} ({pct}%)",
@@ -492,6 +494,7 @@ if not st.session_state.submitted:
 
             st.session_state.submitted = True
             st.session_state.grade_report = {
+                "student_name": student_name.strip(),
                 "score": score,
                 "total": total,
                 "pct": pct,
@@ -511,8 +514,8 @@ if st.session_state.submitted and st.session_state.grade_report:
         st.success(f"✅ **Submitted!** Your score of **{rep['score']}/{rep['total']} ({rep['pct']}%)** has been emailed to **{TEACHER_EMAIL}**.")
     else:
         st.warning(
-            f"⚠️ Quiz graded (**{rep['score']}/{rep['total']} — {rep['pct']}%**), but automatic email delivery encountered a network block ({rep['email_msg']}). "
-            f"Click the backup email link below or download your receipt to send to **{TEACHER_EMAIL}**."
+            f"⚠️ Quiz graded (**{rep['score']}/{rep['total']} — {rep['pct']}%**), but automatic email delivery was blocked ({rep['email_msg']}). "
+            f"Use the backup email button or download your receipt below to send to **{TEACHER_EMAIL}**."
         )
 
     st.subheader(f"Final Score: {rep['score']} / {rep['total']} ({rep['pct']}%)")
@@ -522,9 +525,18 @@ if st.session_state.submitted and st.session_state.grade_report:
         else:
             st.markdown(f"❌ **{label}** — Your answer: *{chosen}* | Correct: *{correct}*")
 
-    st.download_button(
-        label="📄 Download Score Receipt (.txt)",
-        data=rep["report_text"],
-        file_name=f"Stats_Quiz_{student_name.strip().replace(' ', '_')}.txt",
-        mime="text/plain"
-    )
+    b_col1, b_col2 = st.columns(2)
+    with b_col1:
+        subj_enc = urllib.parse.quote(f"Stats Quiz Submission: {rep['student_name']} ({rep['score']}/{rep['total']})")
+        body_enc = urllib.parse.quote(rep["report_text"])
+        mailto_url = f"mailto:{TEACHER_EMAIL}?subject={subj_enc}&body={body_enc}"
+        st.link_button("✉️ Open Pre-Filled Email in Mail App", mailto_url, use_container_width=True)
+
+    with b_col2:
+        st.download_button(
+            label="📄 Download Score Receipt (.txt)",
+            data=rep["report_text"],
+            file_name=f"Stats_Quiz_{rep['student_name'].replace(' ', '_')}.txt",
+            mime="text/plain",
+            use_container_width=True
+        )
